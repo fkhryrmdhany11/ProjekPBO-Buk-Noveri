@@ -1,0 +1,19 @@
+AUDIO OK /audio/kucing.wav PCM_SIGNED 48000.0 Hz, 16 bit, mono, 2 bytes/frame, little-endian
+AUDIO OK /audio/anjing.wav PCM_SIGNED 48000.0 Hz, 16 bit, mono, 2 bytes/frame, little-endian
+AUDIO OK /audio/burung.wav PCM_SIGNED 44100.0 Hz, 16 bit, stereo, 4 bytes/frame, little-endian
+AUDIO OK /audio/ayam.wav PCM_SIGNED 48000.0 Hz, 16 bit, mono, 2 bytes/frame, little-endian
+AUDIO OK /audio/angsa.wav PCM_SIGNED 44100.0 Hz, 16 bit, stereo, 4 bytes/frame, little-endian
+RESOURCE OK: 11 PNG dan 5 WAV terbaca dari classpath/JAR.
+OK awal, pilihan kendaraan, ending belum lengkap, hari berikutnya
+OK gerak lurus/diagonal, collision, BBM idle/pause/dialog/nol, bantuan
+OK beli/penolakan makanan, lima override, friendship/cooldown/follow, misi & state scene
+OK NPC, aktivitas sekali per hari, periode waktu, malam, batas 23.59
+OK antrean, nominal/saldo/tangki, preview valid, pembayaran ganda, pause/batal atomik
+OK peluang event 70/10/10/10, cooldown 8 detik, stop/macet, akhir event
+WRITE_OK
+READ_OK
+OK save/load semua fields, save rusak/IO, write atomik, dua JVM independen
+OK Auto Demo 204.9 detik (44 tahap), misi pertama berhasil, state/save pemain utuh
+OK key bindings/release modal, satu listener per scene, render 980x720 & 1366x850, JAR Java17
+LULUS: 233 assertions. GUI interaktif, speaker, launcher Windows perlu cek manual.
+BUILD OK: ADayInMyCity/dist/ADayInMyCity.jar (Java 17)
