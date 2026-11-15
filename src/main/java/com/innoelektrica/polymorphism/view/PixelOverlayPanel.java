@@ -610,8 +610,8 @@ public final class PixelOverlayPanel {
             "2. SHORTCUT LENGKAP: [WASD/Panah] Gerak | [E] Aksi | [F] Naik/Turun | [H] Klakson | [R] Pulang ke Rumah",
             "   [Q] Quest | [I] Tas | [X] Ke Peta | [B] BBM Darurat | [K] Simpan | [L] Muat | [P] Jeda | [F1/?] Bantuan",
             "3. TUKAR KENDARAAN & JALUR KIRI: Pulang ke Rumah [R] kapan saja untuk bertukar Motor <-> Mobil di hari sama.",
-            "4. TAMAN & PERILAKU HEWAN: Hewan berjalan santai di habitatnya dan bergerombol mendekat jika kamu bawa",
-            "   makanan! Masuki zona hijau untuk suara singkat berjeda (maks 2.2 dtk), beri makan agar berkumpul bersama.",
+            "4. TAMAN & PERILAKU HEWAN (15 SATWA): Tiap jenis hewan punya beberapa ekor; hanya pemakan makanan yang",
+            "   kamu bawa yang bergerombol mendekat! Dekati hewan untuk suara sahut-sahutan ramai tanpa jeda.",
             "5. SISTEM QUEST PBO (Tekan [Q]): Kurir Logistik (Mobil bonus 1.5x), Kerja Kota (Pak Raka), Penjaga Taman.",
             "6. SPBU DRIVE-THRU: Berhenti sejajar Pompa 01 untuk isi BBM (+1L, +3L, +5L, Penuh)."
         };

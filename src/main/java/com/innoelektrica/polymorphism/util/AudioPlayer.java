@@ -3,11 +3,13 @@ import javax.sound.sampled.*;
 import javax.swing.SwingUtilities;
 import java.awt.GraphicsEnvironment;
 import java.io.*;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-/** Dual-channel audio player: satu kanal SFX (opsional batas durasi) & satu kanal loop mesin kendaraan. */
+/** Dual-channel polyphonic audio player: hingga 5 kanal SFX paralel + 1 kanal loop mesin kendaraan. */
 public final class AudioPlayer {
+    private static final int MAX_CONCURRENT_SFX=5;
     private static final ExecutorService WORKER=Executors.newSingleThreadExecutor(r-> {
         Thread t=new Thread(r,"city-audio");
         t.setDaemon(true);
@@ -21,8 +23,8 @@ public final class AudioPlayer {
     private static final AtomicLong GENERATION=new AtomicLong();
     private static final AtomicLong ENGINE_GEN=new AtomicLong();
     private static final Object ENGINE_STATE_LOCK=new Object();
-    private static Clip currentClip,engineClip;
-    private static ScheduledFuture<?> pendingStopTask;
+    private static final Map<Clip,ScheduledFuture<?>> ACTIVE_SFX=new LinkedHashMap<>();
+    private static Clip engineClip;
     private static volatile String requestedEngineResource,activeEngineResource;
     private static volatile Consumer<String> errors=s-> {
     };
@@ -43,23 +45,20 @@ public final class AudioPlayer {
             return clip;
         }
     }
-    private static void cancelPendingStop() {
-        if(pendingStopTask!=null) {
-            pendingStopTask.cancel(false);
-            pendingStopTask=null;
+    private static void closeSfxClip(Clip c) {
+        if(c==null)return;
+        ScheduledFuture<?> task=ACTIVE_SFX.remove(c);
+        if(task!=null)task.cancel(false);
+        try {
+            c.stop();
+            c.close();
+        }
+        catch(Exception ignored) {
         }
     }
-    private static void closeCurrent() {
-        cancelPendingStop();
-        if(currentClip!=null) {
-            Clip c=currentClip;
-            currentClip=null;
-            try {
-                c.stop();
-                c.close();
-            }
-            catch(Exception ignored) {
-            }
+    private static void closeAllSfx() {
+        for(Clip c:new ArrayList<>(ACTIVE_SFX.keySet())) {
+            closeSfxClip(c);
         }
     }
     private static void closeEngine() {
@@ -78,46 +77,44 @@ public final class AudioPlayer {
     public static void play(String resource) {
         playShort(resource,0);
     }
-    /** Memutar suara satu kali, otomatis berhenti bila melebihi maxMillis (> 0) agar suara hewan tidak kepanjangan. */
+    /** Memutar suara secara paralel (hingga 5 suara bersamaan agar ramai), otomatis berhenti bila melebihi maxMillis (> 0). */
     public static void playShort(String resource,int maxMillis) {
+        playShort(resource,maxMillis,0.0f);
+    }
+    /** Memutar suara secara paralel dengan pengatur volume gainDb (dB) agar suasana lalu lintas tetap seimbang. */
+    public static void playShort(String resource,int maxMillis,float gainDb) {
         if(resource==null||GraphicsEnvironment.isHeadless())return;
-        long token=GENERATION.incrementAndGet();
+        long genAtStart=GENERATION.get();
         WORKER.execute(()-> {
-            closeCurrent();
+            if(genAtStart!=GENERATION.get())return;
             Clip clip=null;
             try {
+                while(ACTIVE_SFX.size()>=MAX_CONCURRENT_SFX) {
+                    closeSfxClip(ACTIVE_SFX.keySet().iterator().next());
+                }
                 clip=openClip(resource);
-                if(token!=GENERATION.get()) {
+                if(genAtStart!=GENERATION.get()) {
                     clip.close();
                     return;
                 }
-                Clip selected=clip;
-                currentClip=selected;
-                selected.addLineListener(e-> {
-                    if(e.getType()==LineEvent.Type.STOP)WORKER.execute(()-> {
-                        if(currentClip==selected) {
-                            cancelPendingStop();
-                            currentClip=null;
-                        }
-                        try {
-                            selected.close();
-                        }
-                        catch(Exception ignored) {
-                        }
-                    });
-                });
-                selected.start();
-                if(maxMillis>0) {
-                    pendingStopTask=TIMER.schedule(()->WORKER.execute(()-> {
-                        if(token==GENERATION.get()&&currentClip==selected) {
-                            closeCurrent();
-                        }
-                    }),maxMillis,TimeUnit.MILLISECONDS);
+                if(gainDb!=0.0f&&clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
+                    FloatControl gain=(FloatControl)clip.getControl(FloatControl.Type.MASTER_GAIN);
+                    gain.setValue(Math.max(gain.getMinimum(),Math.min(gain.getMaximum(),gainDb)));
                 }
+                Clip selected=clip;
+                selected.addLineListener(e-> {
+                    if(e.getType()==LineEvent.Type.STOP)WORKER.execute(()->closeSfxClip(selected));
+                });
+                ScheduledFuture<?> stopTask=null;
+                if(maxMillis>0) {
+                    stopTask=TIMER.schedule(()->WORKER.execute(()->closeSfxClip(selected)),maxMillis,TimeUnit.MILLISECONDS);
+                }
+                ACTIVE_SFX.put(selected,stopTask);
+                selected.start();
             }
             catch(Exception ex) {
                 if(clip!=null)clip.close();
-                if(token==GENERATION.get())SwingUtilities.invokeLater(()->errors.accept("Suara belum dapat diputar pada perangkat ini. Periksa keluaran audio."));
+                if(genAtStart==GENERATION.get())SwingUtilities.invokeLater(()->errors.accept("Suara belum dapat diputar pada perangkat ini. Periksa keluaran audio."));
             }
         });
     }
@@ -187,7 +184,7 @@ public final class AudioPlayer {
             return;
         }
         WORKER.execute(()-> {
-            closeCurrent();
+            closeAllSfx();
             closeEngine();
         });
     }

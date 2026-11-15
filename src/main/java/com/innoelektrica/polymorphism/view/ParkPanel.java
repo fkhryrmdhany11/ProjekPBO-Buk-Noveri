@@ -35,44 +35,34 @@ public final class ParkPanel extends ScenePanel {
         // Area Parkir Kendaraan di Gerbang Taman (Tanpa Pengendara karena Pemain Jalan Kaki)
         PixelArtRenderer.drawPixelSidewalk(g,64,484,156,92);
         vehicle(g,s.getVehicle(),142,542,88,0,false);
-        // Zona Suara Kecil di sekitar setiap hewan + Hewan 16-Bit Proporsional
-        AnimalType activeZone=game.getActiveSoundZoneAnimal();
-        for(AnimalType a:AnimalType.values()) {
-            Point2D.Double p=game.getAnimalPosition(a);
-            PixelArtRenderer.drawAnimalSoundZone(g,p.x,p.y,WorldLayout.ANIMAL_SOUND_RADIUS,activeZone==a,anim);
-        }
-        if(game.isAnimalsGathering()&&game.getGatherCenter()!=null) {
-            Point2D.Double gc=game.getGatherCenter();
-            PixelArtRenderer.drawAnimalSoundZone(g,gc.x,gc.y,56,true,anim);
-        }
-        for(AnimalType a:AnimalType.values()) {
-            Point2D.Double p=game.getAnimalPosition(a);
-            PixelArtRenderer.drawPixelAnimal(g,a,game.getAnimal(a),p.x,p.y,s.getFriendship(a),period,anim);
+        // 15 Hewan 16-Bit Proporsional (area suara aktif secara tak terlihat tanpa gambar hitbox lingkaran)
+        for(GameManager.ParkAnimal pa:game.getParkAnimals()) {
+            PixelArtRenderer.drawPixelAnimal(g,pa.type(),pa.model(),pa.x(),pa.y(),s.getFriendship(pa.type()),period,anim,pa.primary());
         }
         player(g,s.getX(),s.getY(),new Color(53,137,204));
     }
     @Override protected void paintLabels(Graphics2D g,GameManager game) {
         GameState s=game.getState();
-        title(g,"TAMAN KOTA (+SANITY)","Sanity "+s.getSanity()+"% • Dekati zona suara hewan, beri makan agar berkumpul!");
+        title(g,"TAMAN KOTA (+SANITY)","Sanity "+s.getSanity()+"% • Dekati hewan agar bersuara, beri pakan favoritnya!");
         pill(g,game.isShopOpen()?"Kios & Kopi [E]":"Kios Tutup",142,222,11);
         pill(g,"Bangku [E]",455,112,11);
         pill(g,"Kolam [E]",628,144,11);
         pill(g,"Keluar [E]",142,492,11);
-        for(AnimalType a:AnimalType.values()) {
-            var p=game.getAnimalPosition(a);
+        for(GameManager.ParkAnimal pa:game.getParkAnimals()) {
+            if(!pa.primary()) continue;
             String rest=s.getPeriod()==TimePeriod.MALAM?" • Zzz":"";
-            pill(g,a+" ("+s.getFriendship(a)+")"+rest,p.x,p.y+20,11);
+            pill(g,pa.type()+" ("+s.getFriendship(pa.type())+")"+rest,pa.x(),pa.y()+20,11);
         }
         if(game.isAnimalsGathering()) {
-            pill(g,"Hewan berkumpul menikmati makanan!",520,86,12);
+            pill(g,"Hewan yang suka makananmu berkumpul!",520,86,12);
         }
         if(!game.getReaction().isEmpty())pill(g,game.getReaction(),560,542,12);
     }
     @Override protected void onClick(double x,double y) {
         GameManager g=source.get();
-        for(AnimalType a:AnimalType.values()) {
-            if(g.getAnimalPosition(a).distance(x,y)<55) {
-                ui.animal(a);
+        for(GameManager.ParkAnimal pa:g.getParkAnimals()) {
+            if(Math.hypot(pa.x()-x,pa.y()-y)<55) {
+                ui.animal(pa.type());
                 return;
             }
         }

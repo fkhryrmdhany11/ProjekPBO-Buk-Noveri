@@ -852,6 +852,9 @@ public final class PixelArtRenderer {
         g2.dispose();
     }
     public static void drawPixelAnimal(Graphics2D g, AnimalType type, Hewan animal, double x, double y, int friendship, TimePeriod period, double anim) {
+        drawPixelAnimal(g, type, animal, x, y, friendship, period, anim, true);
+    }
+    public static void drawPixelAnimal(Graphics2D g, AnimalType type, Hewan animal, double x, double y, int friendship, TimePeriod period, double anim, boolean showBadge) {
         int ix = (int) Math.round(x), iy = (int) Math.round(y);
         int bob = period == TimePeriod.MALAM ? 0 : (((int) (anim * 4 + type.ordinal())) % 2) * 2;
         int size = animalPixelSize(type);
@@ -859,6 +862,7 @@ public final class PixelArtRenderer {
         g.setColor(new Color(18, 32, 18, 95));
         g.fillRect(ix - shadowW / 2, iy - 3, shadowW, 6);
         drawPixelAnimalSprite(g, type, ix, iy - 4, size, period, anim);
+        if (!showBadge) return;
         // Emote bubble ringkas di atas kepala hewan tanpa menutupi sprite hewan
         double spriteScale = Math.max(0.35, size / 64.0);
         int badgeY = iy - (int) Math.round(44 * spriteScale) - 18 + bob;

@@ -25,15 +25,36 @@ public final class GameManager {
     private double fillingSeconds;
     private boolean cityActivity;
     private double activitySeconds;
-    private AnimalType followingAnimal,reactingAnimal,activeSoundZoneAnimal;
+    private AnimalType followingAnimal,reactingAnimal,gatherFedType;
+    private FoodType gatherFood;
     private Point2D.Double followerPosition,gatherCenter;
-    private double followSeconds,reactionSeconds,gatherSeconds,npcYieldSeconds,trafficWarnCooldown,globalAnimalAudioCooldown,foodAttractCooldown;
+    private double followSeconds,reactionSeconds,gatherSeconds,npcYieldSeconds,trafficWarnCooldown;
+    private double ambientTrafficTimer=1.4;
+    private int trafficSoundEvents,ambientTrafficIndex;
     private String reaction="";
-    private final EnumMap<AnimalType,Point2D.Double> animalPositions=new EnumMap<>(AnimalType.class);
-    private final EnumMap<AnimalType,Point2D.Double> gatherTargets=new EnumMap<>(AnimalType.class);
-    private final EnumMap<AnimalType,Point2D.Double> roamTargets=new EnumMap<>(AnimalType.class);
-    private final EnumMap<AnimalType,Double> roamTimers=new EnumMap<>(AnimalType.class);
-    private final EnumMap<AnimalType,Double> zoneCooldowns=new EnumMap<>(AnimalType.class);
+    private final EnumSet<AnimalType> lastAttractTypes=EnumSet.noneOf(AnimalType.class);
+    public record ParkAnimal(int id,AnimalType type,Hewan model,double x,double y,boolean primary,boolean inSoundZone) {
+    }
+    private static final class ParkAnimalEntry {
+        final int id;
+        final AnimalType type;
+        final Hewan model;
+        final Point2D.Double home;
+        final boolean primary;
+        double x,y,roamX,roamY,roamTimer;
+        boolean inSoundZone;
+        ParkAnimalEntry(int id,AnimalType type,Point2D.Double home,boolean primary) {
+            this.id=id;
+            this.type=type;
+            this.model=type.create();
+            this.home=home;
+            this.primary=primary;
+            this.x=this.roamX=home.x;
+            this.y=this.roamY=home.y;
+            this.roamTimer=0.4+(id%5)*0.35;
+        }
+    }
+    private final List<ParkAnimalEntry> parkAnimals=new ArrayList<>();
     public record TrafficVehicle(VehicleType type,double x,double y,double facing,int colorIndex,boolean yielding) {
     }
     private static final class NpcCar {
@@ -43,6 +64,7 @@ public final class GameManager {
         final int colorIndex;
         int wpIndex;
         double x,y,facing;
+        boolean nearPlayer;
         NpcCar(VehicleType type,Point2D.Double[] waypoints,int startWp,double startX,double startY,double speed,int colorIndex) {
             this.type=type;
             this.waypoints=waypoints;
@@ -84,29 +106,46 @@ public final class GameManager {
         demo=d;
         for(AnimalType a:AnimalType.values()) {
             animals.put(a,a.create());
-            resetSingleAnimalPosition(a);
         }
+        initParkAnimals();
         initTrafficVehicles();
     }
-    private void resetSingleAnimalPosition(AnimalType a) {
-        Point2D.Double h=WorldLayout.animalHome(a);
-        animalPositions.put(a,new Point2D.Double(h.x,h.y));
-        gatherTargets.put(a,new Point2D.Double(h.x,h.y));
-        roamTargets.put(a,new Point2D.Double(h.x,h.y));
-        roamTimers.put(a,0.4+a.ordinal()*0.4);
-        zoneCooldowns.put(a,0.0);
+    private void initParkAnimals() {
+        parkAnimals.clear();
+        int nextId=0;
+        for(AnimalType a:AnimalType.values()) {
+            parkAnimals.add(new ParkAnimalEntry(nextId++,a,WorldLayout.animalHome(a),true));
+        }
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.KUCING,new Point2D.Double(550,315),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.KUCING,new Point2D.Double(735,420),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.ANJING,new Point2D.Double(335,305),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.ANJING,new Point2D.Double(515,290),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.BURUNG,new Point2D.Double(235,330),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.BURUNG,new Point2D.Double(355,370),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.AYAM,new Point2D.Double(415,485),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.AYAM,new Point2D.Double(565,485),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.ANGSA,new Point2D.Double(595,292),false));
+        parkAnimals.add(new ParkAnimalEntry(nextId++,AnimalType.ANGSA,new Point2D.Double(785,292),false));
     }
     private void resetAllAnimalsHome() {
-        for(AnimalType a:AnimalType.values()) {
-            Point2D.Double h=WorldLayout.animalHome(a);
-            animalPositions.put(a,new Point2D.Double(h.x,h.y));
-            gatherTargets.put(a,new Point2D.Double(h.x,h.y));
-            roamTargets.put(a,new Point2D.Double(h.x,h.y));
-            roamTimers.put(a,0.4+a.ordinal()*0.4);
+        for(ParkAnimalEntry e:parkAnimals) {
+            e.x=e.roamX=e.home.x;
+            e.y=e.roamY=e.home.y;
+            e.roamTimer=0.4+(e.id%5)*0.35;
+            e.inSoundZone=false;
         }
         gatherCenter=null;
         gatherSeconds=0;
-        activeSoundZoneAnimal=null;
+        gatherFood=null;
+        gatherFedType=null;
+        lastAttractTypes.clear();
+    }
+    public List<ParkAnimal> getParkAnimals() {
+        List<ParkAnimal> out=new ArrayList<>(parkAnimals.size());
+        for(ParkAnimalEntry e:parkAnimals) {
+            out.add(new ParkAnimal(e.id,e.type,e.model,e.x,e.y,e.primary,e.inSoundZone));
+        }
+        return Collections.unmodifiableList(out);
     }
     private void initTrafficVehicles() {
         Point2D.Double[] outerCW= {
@@ -119,8 +158,12 @@ public final class GameManager {
             new Point2D.Double(514,164),new Point2D.Double(514,456),new Point2D.Double(846,456),new Point2D.Double(846,164)
         };
         npcCars.add(new NpcCar(VehicleType.MOBIL,outerCW,0,720,136,68,0));
+        npcCars.add(new NpcCar(VehicleType.MOTOR,outerCW,1,874,300,92,5));
         npcCars.add(new NpcCar(VehicleType.MOTOR,outerCW,2,340,484,84,1));
+        npcCars.add(new NpcCar(VehicleType.MOBIL,outerCW,3,121,310,70,6));
         npcCars.add(new NpcCar(VehicleType.MOBIL,westCCW,1,149,280,64,2));
+        npcCars.add(new NpcCar(VehicleType.MOTOR,westCCW,2,320,456,86,7));
+        npcCars.add(new NpcCar(VehicleType.MOBIL,westCCW,3,486,260,72,8));
         npcCars.add(new NpcCar(VehicleType.MOTOR,eastCCW,2,680,456,88,3));
         npcCars.add(new NpcCar(VehicleType.MOBIL,eastCCW,3,846,290,72,4));
     }
@@ -130,6 +173,13 @@ public final class GameManager {
             out.add(new TrafficVehicle(c.type,c.x,c.y,c.facing,c.colorIndex,npcYieldSeconds>0));
         }
         return Collections.unmodifiableList(out);
+    }
+    public int getTrafficSoundEventCount() {
+        return trafficSoundEvents;
+    }
+    public boolean isAnyTrafficVehicleNearPlayer() {
+        for(NpcCar c:npcCars)if(c.nearPlayer)return true;
+        return false;
     }
     public boolean isAnimalsGathering() {
         return gatherSeconds>0;
@@ -507,7 +557,12 @@ public final class GameManager {
         return result(true,"Tiba di "+e.location().getLabel()+".");
     }
     private void changeLocation(Location loc) {
-        if(loc!=Location.MAP)com.innoelektrica.polymorphism.util.AudioPlayer.stopEngineLoop();
+        if(state.getLocation()==Location.MAP&&loc!=Location.MAP) {
+            com.innoelektrica.polymorphism.util.AudioPlayer.stopAll();
+        }
+        else if(loc!=Location.MAP)com.innoelektrica.polymorphism.util.AudioPlayer.stopEngineLoop();
+        for(NpcCar c:npcCars)c.nearPlayer=false;
+        ambientTrafficTimer=1.4;
         state.setLocation(loc);
         switch(loc) {
             case MAP-> {
@@ -576,8 +631,10 @@ public final class GameManager {
         if(a==followingAnimal&&followSeconds>0&&followerPosition!=null) {
             return new Point2D.Double(followerPosition.x,followerPosition.y);
         }
-        Point2D.Double p=animalPositions.get(a);
-        return p!=null?new Point2D.Double(p.x,p.y):WorldLayout.animalHome(a);
+        for(ParkAnimalEntry e:parkAnimals) {
+            if(e.type==a&&e.primary)return new Point2D.Double(e.x,e.y);
+        }
+        return WorldLayout.animalHome(a);
     }
     public AnimalType getFollowingAnimal() {
         return followSeconds>0?followingAnimal:null;
@@ -585,8 +642,14 @@ public final class GameManager {
     public AnimalType getReactingAnimal() {
         return reactionSeconds>0?reactingAnimal:null;
     }
+    public Set<AnimalType> getActiveSoundZoneAnimals() {
+        EnumSet<AnimalType> out=EnumSet.noneOf(AnimalType.class);
+        for(ParkAnimalEntry e:parkAnimals)if(e.inSoundZone)out.add(e.type);
+        return out;
+    }
     public AnimalType getActiveSoundZoneAnimal() {
-        return activeSoundZoneAnimal;
+        for(ParkAnimalEntry e:parkAnimals)if(e.inSoundZone)return e.type;
+        return null;
     }
     public String getReaction() {
         return reactionSeconds>0?reaction:"";
@@ -604,14 +667,13 @@ public final class GameManager {
         reactionSeconds=Math.max(0,reactionSeconds-dt);
         npcYieldSeconds=Math.max(0,npcYieldSeconds-dt);
         trafficWarnCooldown=Math.max(0,trafficWarnCooldown-dt);
-        globalAnimalAudioCooldown=Math.max(0,globalAnimalAudioCooldown-dt);
-        foodAttractCooldown=Math.max(0,foodAttractCooldown-dt);
         for(AnimalType a:AnimalType.values()) {
             state.setCooldown(a,Math.max(0,state.getCooldown(a)-dt));
-            zoneCooldowns.put(a,Math.max(0,zoneCooldowns.getOrDefault(a,0.0)-dt));
-            roamTimers.put(a,Math.max(0,roamTimers.getOrDefault(a,0.0)-dt));
         }
-        // Gerakkan 5 kendaraan NPC di jalur kiri jalan raya kota
+        for(ParkAnimalEntry e:parkAnimals) {
+            e.roamTimer=Math.max(0,e.roamTimer-dt);
+        }
+        // Gerakkan 9 kendaraan NPC di jalur kiri jalan raya kota
         for(NpcCar c:npcCars) {
             boolean nearPlayer=false;
             if(state.getLocation()==Location.MAP&&state.isMounted()&&npcYieldSeconds<=0) {
@@ -621,6 +683,34 @@ public final class GameManager {
                 nearPlayer=fwd>0&&fwd<36&&lat<12;
             }
             if(!nearPlayer)c.step(dt);
+        }
+        // Suara ramai lalu lintas kota (hanya aktif di Jalan Raya Kota / Location.MAP)
+        if(state.getLocation()==Location.MAP) {
+            for(NpcCar c:npcCars) {
+                double d=Point2D.distance(c.x,c.y,state.getX(),state.getY());
+                if(d<=95.0) {
+                    if(!c.nearPlayer) {
+                        c.nearPlayer=true;
+                        trafficSoundEvents++;
+                        Kendaraan kv=c.type.create();
+                        com.innoelektrica.polymorphism.util.AudioPlayer.playShort(kv.getAudioResource(),1400,-9.0f);
+                        if(d<=60.0||(c.colorIndex%2==0)) {
+                            com.innoelektrica.polymorphism.util.AudioPlayer.playShort(kv.getHornResource(),950,-6.5f);
+                        }
+                    }
+                }
+                else if(d>110.0) {
+                    c.nearPlayer=false;
+                }
+            }
+            ambientTrafficTimer-=dt;
+            if(ambientTrafficTimer<=0&&!npcCars.isEmpty()) {
+                int idx=Math.floorMod(ambientTrafficIndex++,npcCars.size());
+                ambientTrafficTimer=1.4+(idx%3)*0.55;
+                NpcCar pick=npcCars.get(idx);
+                trafficSoundEvents++;
+                com.innoelektrica.polymorphism.util.AudioPlayer.playShort(pick.type.create().getHornResource(),1050,-6.5f);
+            }
         }
         if(state.getLocation()==Location.PARK&&state.getSanity()<100) {
             double rem=state.getSanityRemainder()+dt*0.4;
@@ -642,7 +732,11 @@ public final class GameManager {
         }
         if(gatherSeconds>0) {
             gatherSeconds=Math.max(0,gatherSeconds-dt);
-            if(gatherSeconds==0)gatherCenter=null;
+            if(gatherSeconds==0) {
+                gatherCenter=null;
+                gatherFood=null;
+                gatherFedType=null;
+            }
         }
         if(followSeconds>0) {
             followSeconds=Math.max(0,followSeconds-dt);
@@ -651,88 +745,113 @@ public final class GameManager {
                 double step=Math.min(d-58,70*dt),nx=followerPosition.x+dx/d*step,ny=followerPosition.y+dy/d*step;
                 if(WorldLayout.canWalk(Location.PARK,nx,ny)) {
                     followerPosition.setLocation(nx,ny);
-                    animalPositions.put(followingAnimal,new Point2D.Double(nx,ny));
-                }
-            }
-        }
-        // Gerak hewan: berkumpul saat makan, menghampiri player jika bawa makanan, atau jalan santai di habitat
-        if(state.getLocation()==Location.PARK&&state.getPeriod()!=TimePeriod.MALAM) {
-            boolean hasFood=state.getInventory().totalCount()>0;
-            if(gatherSeconds>0) {
-                gatherCenter=new Point2D.Double(state.getX(),state.getY());
-            }
-            else if(hasFood&&foodAttractCooldown<=0) {
-                notifyPlayer("Satwa taman mencium aroma makanan dan bergerombol menghampirimu!");
-                foodAttractCooldown=14.0;
-            }
-            for(AnimalType a:AnimalType.values()) {
-                if(a==followingAnimal&&followSeconds>0)continue;
-                Point2D.Double cur=animalPositions.get(a);
-                Point2D.Double tgt;
-                double spd;
-                if(gatherSeconds>0) {
-                    tgt=ringSlotAroundPlayer(a.ordinal(),5,44.0);
-                    spd=88.0;
-                }
-                else if(hasFood) {
-                    tgt=ringSlotAroundPlayer(a.ordinal(),5,58.0);
-                    spd=72.0;
-                }
-                else {
-                    Point2D.Double rt=roamTargets.get(a);
-                    if(rt==null||(rt.distance(cur)<=2.0&&roamTimers.getOrDefault(a,0.0)<=0)) {
-                        rt=pickRoamTarget(a);
-                        roamTargets.put(a,rt);
-                        roamTimers.put(a,1.6+random.nextDouble()*2.0);
-                    }
-                    tgt=rt;
-                    spd=26.0;
-                }
-                double dx=tgt.x-cur.x,dy=tgt.y-cur.y,d=Math.hypot(dx,dy);
-                if(d>1.5) {
-                    double step=Math.min(d,spd*dt);
-                    double nx=cur.x+dx/d*step,ny=cur.y+dy/d*step;
-                    if(WorldLayout.canWalk(Location.PARK,nx,ny)) {
-                        cur.setLocation(nx,ny);
-                    }
-                    else {
-                        if(WorldLayout.canWalk(Location.PARK,nx,cur.y))cur.x=nx;
-                        if(WorldLayout.canWalk(Location.PARK,cur.x,ny))cur.y=ny;
-                        if(gatherSeconds<=0&&!hasFood) {
-                            roamTargets.put(a,new Point2D.Double(cur.x,cur.y));
-                            roamTimers.put(a,1.2+random.nextDouble()*1.5);
+                    for(ParkAnimalEntry e:parkAnimals) {
+                        if(e.type==followingAnimal&&e.primary) {
+                            e.x=nx;
+                            e.y=ny;
+                            break;
                         }
                     }
                 }
             }
-            // Zona suara otomatis dengan jeda 8 detik per hewan & jeda global 2.5 detik agar tidak berulang terus
-            AnimalType zoneHit=null;
-            double bestDist=WorldLayout.ANIMAL_SOUND_RADIUS;
-            for(AnimalType a:AnimalType.values()) {
-                double d=getAnimalPosition(a).distance(state.getX(),state.getY());
-                if(d<=bestDist) {
-                    bestDist=d;
-                    zoneHit=a;
+        }
+        // Gerak hewan: hanya hewan yang suka makanan di tas (atau baru diberi makan) yang menghampiri player
+        if(state.getLocation()==Location.PARK&&state.getPeriod()!=TimePeriod.MALAM) {
+            List<ParkAnimalEntry> attracted=new ArrayList<>();
+            EnumSet<AnimalType> attractedTypes=EnumSet.noneOf(AnimalType.class);
+            for(ParkAnimalEntry e:parkAnimals) {
+                boolean match=gatherSeconds>0
+                    ?(e.type==gatherFedType||(gatherFood!=null&&e.model.menerima(gatherFood))||likesFoodInBag(e.type))
+                    :likesFoodInBag(e.type);
+                if(match) {
+                    attracted.add(e);
+                    attractedTypes.add(e.type);
                 }
             }
-            if(zoneHit!=null) {
-                if(zoneHit!=activeSoundZoneAnimal&&zoneCooldowns.getOrDefault(zoneHit,0.0)<=0&&globalAnimalAudioCooldown<=0) {
-                    Hewan zh=animals.get(zoneHit);
-                    zh.bersuara();
-                    reactingAnimal=zoneHit;
-                    reactionSeconds=4.5;
-                    reaction=zh.getNama()+": \""+zh.getSuaraSebelumMakan()+"\"";
-                    zoneCooldowns.put(zoneHit,8.0);
-                    globalAnimalAudioCooldown=2.5;
-                }
-                activeSoundZoneAnimal=zoneHit;
+            if(gatherSeconds>0) {
+                gatherCenter=new Point2D.Double(state.getX(),state.getY());
             }
-            else {
-                activeSoundZoneAnimal=null;
+            else if(!attractedTypes.equals(lastAttractTypes)) {
+                EnumSet<AnimalType> newlyAttracted=EnumSet.copyOf(attractedTypes);
+                newlyAttracted.removeAll(lastAttractTypes);
+                if(!newlyAttracted.isEmpty()) {
+                    StringBuilder sb=new StringBuilder();
+                    for(AnimalType t:newlyAttracted) {
+                        if(sb.length()>0)sb.append(", ");
+                        sb.append(animals.get(t).getNama());
+                        animals.get(t).bersuara(); // Bersahut-sahutan langsung tanpa delay
+                    }
+                    notifyPlayer(sb+" mencium aroma makanan kesukaannya dan menghampiri!");
+                }
+            }
+            lastAttractTypes.clear();
+            lastAttractTypes.addAll(attractedTypes);
+
+            for(ParkAnimalEntry e:parkAnimals) {
+                if(e.primary&&e.type==followingAnimal&&followSeconds>0)continue;
+                int attractIdx=attracted.indexOf(e);
+                double tx,ty,spd;
+                boolean flocking=(attractIdx>=0);
+                if(flocking) {
+                    double baseRad=gatherSeconds>0?44.0:58.0;
+                    double ringRad=attractIdx<6?baseRad:baseRad+28.0;
+                    int ringCount=attractIdx<6?Math.min(6,attracted.size()):Math.max(1,attracted.size()-6);
+                    int ringSlot=attractIdx<6?attractIdx:(attractIdx-6);
+                    Point2D.Double slot=ringSlotAroundPlayer(ringSlot,ringCount,ringRad);
+                    tx=slot.x;
+                    ty=slot.y;
+                    spd=gatherSeconds>0?88.0:72.0;
+                }
+                else {
+                    if(Point2D.distance(e.roamX,e.roamY,e.x,e.y)<=2.0&&e.roamTimer<=0) {
+                        Point2D.Double rt=pickRoamTarget(e.home);
+                        e.roamX=rt.x;
+                        e.roamY=rt.y;
+                        e.roamTimer=1.6+random.nextDouble()*2.0;
+                    }
+                    tx=e.roamX;
+                    ty=e.roamY;
+                    spd=26.0;
+                }
+                double dx=tx-e.x,dy=ty-e.y,d=Math.hypot(dx,dy);
+                if(d>1.5) {
+                    double step=Math.min(d,spd*dt);
+                    double nx=e.x+dx/d*step,ny=e.y+dy/d*step;
+                    if(WorldLayout.canWalk(Location.PARK,nx,ny)) {
+                        e.x=nx;
+                        e.y=ny;
+                    }
+                    else {
+                        if(WorldLayout.canWalk(Location.PARK,nx,e.y))e.x=nx;
+                        if(WorldLayout.canWalk(Location.PARK,e.x,ny))e.y=ny;
+                        if(!flocking) {
+                            e.roamX=e.x;
+                            e.roamY=e.y;
+                            e.roamTimer=1.2+random.nextDouble()*1.5;
+                        }
+                    }
+                }
+            }
+            // Zona suara ramai tanpa delay: tiap hewan yang masuk radius langsung bersuara secara paralel
+            for(ParkAnimalEntry e:parkAnimals) {
+                double d=Point2D.distance(e.x,e.y,state.getX(),state.getY());
+                if(d<=WorldLayout.ANIMAL_SOUND_RADIUS) {
+                    if(!e.inSoundZone) {
+                        e.inSoundZone=true;
+                        e.model.bersuara();
+                        reactingAnimal=e.type;
+                        reactionSeconds=4.5;
+                        reaction=e.model.getNama()+": \""+e.model.getSuaraSebelumMakan()+"\"";
+                    }
+                }
+                else if(d>WorldLayout.ANIMAL_SOUND_RADIUS+6.0) {
+                    e.inSoundZone=false;
+                }
             }
         }
         else {
-            activeSoundZoneAnimal=null;
+            for(ParkAnimalEntry e:parkAnimals)e.inSoundZone=false;
+            lastAttractTypes.clear();
         }
         if(state.getPeriod()==TimePeriod.MALAM&&!state.isNightWarned()) {
             state.setNightWarned(true);
@@ -909,8 +1028,24 @@ public final class GameManager {
         state.log("Membeli "+quantity+" "+food);
         return result(true,"Pembelian berhasil: "+quantity+" "+food+" / "+rupiah(cost));
     }
+    private boolean likesFoodInBag(AnimalType a) {
+        Hewan h=animals.get(a);
+        if(h==null)return false;
+        for(FoodType f:FoodType.values()) {
+            if(state.getInventory().get(f)>0&&h.menerima(f))return true;
+        }
+        return false;
+    }
     private String animalError(AnimalType a) {
-        if(a==null||!active()||isBusy()||state.getLocation()!=Location.PARK||getAnimalPosition(a).distance(state.getX(),state.getY())>85)return "Dekati hewan dahulu.";
+        if(a==null||!active()||isBusy()||state.getLocation()!=Location.PARK)return "Dekati hewan dahulu.";
+        boolean close=false;
+        for(ParkAnimalEntry e:parkAnimals) {
+            if(e.type==a&&Point2D.distance(e.x,e.y,state.getX(),state.getY())<=85) {
+                close=true;
+                break;
+            }
+        }
+        if(!close)return "Dekati hewan dahulu.";
         if(state.getCooldown(a)>0)return "Tunggu sebentar sebelum berinteraksi lagi.";
         return null;
     }
@@ -929,10 +1064,8 @@ public final class GameManager {
             state.addFed(a);
             state.setFoodGiven(state.getFoodGiven()+1);
             state.log("Memberi "+food+" kepada "+a+" (Sanity +"+animal.getSanityBonus()+"%)");
-            animal.bersuara(); // Suara hewan otomatis sesudah diberi makan (terbatas 2.2 dtk)
-            zoneCooldowns.put(a,8.0);
-            globalAnimalAudioCooldown=2.5;
-            startGathering(a);
+            animal.bersuara(); // Suara hewan langsung tanpa delay sesudah diberi makan
+            startGathering(a,food);
             follow(a);
             Quest q=getActiveQuest();
             if(q instanceof ParkCareQuest) {
@@ -964,8 +1097,7 @@ public final class GameManager {
         reaction=a+" senang dielus. Friendship +2, Sanity +"+animal.getPetSanityBonus()+"%.";
         return result(true,reaction);
     }
-    private Point2D.Double pickRoamTarget(AnimalType a) {
-        Point2D.Double home=WorldLayout.animalHome(a);
+    private Point2D.Double pickRoamTarget(Point2D.Double home) {
         for(int i=0;i<6;i++) {
             double ang=random.nextDouble()*Math.PI*2.0;
             double rad=18.0+random.nextDouble()*42.0;
@@ -983,14 +1115,12 @@ public final class GameManager {
         }
         return new Point2D.Double(state.getX(),state.getY());
     }
-    private void startGathering(AnimalType fed) {
+    private void startGathering(AnimalType fed,FoodType food) {
         if(state.getPeriod()==TimePeriod.MALAM)return;
+        gatherFedType=fed;
+        gatherFood=food;
         gatherCenter=new Point2D.Double(state.getX(),state.getY());
         gatherSeconds=10.0;
-        AnimalType[] all=AnimalType.values();
-        for(int i=0;i<all.length;i++) {
-            gatherTargets.put(all[i],ringSlotAroundPlayer(i,all.length,44.0));
-        }
     }
     private void follow(AnimalType a) {
         if(state.getFriendship(a)>=30&&state.getPeriod()!=TimePeriod.MALAM) {
@@ -1057,6 +1187,8 @@ public final class GameManager {
         trafficEvent=TrafficEvent.NORMAL;
         followingAnimal=reactingAnimal=null;
         followSeconds=reactionSeconds=0;
+        for(NpcCar c:npcCars)c.nearPlayer=false;
+        ambientTrafficTimer=1.4;
         resetAllAnimalsHome();
         return result(true,"Hari "+state.getDay()+" dimulai pukul 07.00. Uang, tas, friendship dan BBM tetap.");
     }
@@ -1082,11 +1214,11 @@ public final class GameManager {
             if(nearShop())return target(TargetKind.SHOP,"[E] Kios Taman (Beli Pakan Satwa & Kopi Sanity 07.00–18.00)",null,l);
             AnimalType nearest=null;
             double best=85;
-            for(AnimalType a:AnimalType.values()) {
-                double d=getAnimalPosition(a).distance(state.getX(),state.getY());
+            for(ParkAnimalEntry e:parkAnimals) {
+                double d=Point2D.distance(e.x,e.y,state.getX(),state.getY());
                 if(d<=best) {
                     best=d;
-                    nearest=a;
+                    nearest=e.type;
                 }
             }
             if(nearest!=null)return target(TargetKind.ANIMAL,"[E] Interaksi "+nearest+" (+Sanity & Friendship)",nearest,l);

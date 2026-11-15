@@ -196,14 +196,26 @@ public final class GameTests {
         ls.setPosition(500,200);
         for(int i=0;i<16;i++)laneGm.tick(.05,0,1);
         check(ls.getX()>508,"mengarah bawah berada di lajur kiri (kanan sumbu jalan)");
-        // Uji Banyak Kendaraan NPC di Jalan Raya & Klakson
-        check(laneGm.getTrafficVehicles().size()>=5,"minimal 5 kendaraan lalu lintas di jalan raya");
+        // Uji 9 Kendaraan NPC di Jalan Raya, Suara Ramai Lalu Lintas (Hanya di MAP), & Klakson
+        check(laneGm.getTrafficVehicles().size()==9,"9 kendaraan lalu lintas (campuran motor & mobil) di jalan raya");
         double npcBeforeX=laneGm.getTrafficVehicles().get(0).x();
         double npcBeforeY=laneGm.getTrafficVehicles().get(0).y();
         laneGm.tick(.25,0,0);
         var npcAfter=laneGm.getTrafficVehicles().get(0);
         check(npcAfter.x()!=npcBeforeX||npcAfter.y()!=npcBeforeY,"kendaraan NPC bergerak di jalan raya");
         check(laneGm.honkVehicle().success(),"klakson kendaraan berhasil");
+        var firstNpc=laneGm.getTrafficVehicles().get(0);
+        ls.setPosition(firstNpc.x()-20,firstNpc.y());
+        int soundBeforePass=laneGm.getTrafficSoundEventCount();
+        laneGm.tick(.1,0,0);
+        check(laneGm.isAnyTrafficVehicleNearPlayer()&&laneGm.getTrafficSoundEventCount()>soundBeforePass,"berpapasan dekat kendaraan lain di MAP memicu suara kendaraan NPC");
+        int soundBeforeAmbient=laneGm.getTrafficSoundEventCount();
+        seconds(laneGm,3.5);
+        check(laneGm.getTrafficSoundEventCount()>soundBeforeAmbient,"suara klakson lalu lintas kota aktif berkala di MAP");
+        GameManager citySilence=park(); // Di PARK / luar MAP, suara lalu lintas kota tidak aktif
+        int parkTrafficBefore=citySilence.getTrafficSoundEventCount();
+        seconds(citySilence,3.5);
+        check(citySilence.getTrafficSoundEventCount()==parkTrafficBefore&&!citySilence.isAnyTrafficVehicleNearPlayer(),"suara ramai lalu lintas tidak aktif saat keluar dari jalan raya kota");
         System.out.println("OK gerak lurus/diagonal, jalur kiri, multi-kendaraan, collision, BBM idle/pause/dialog/nol, bantuan");
     }
     static void foodAnimals()throws Exception {
@@ -753,28 +765,42 @@ public final class GameTests {
         check(qm.feedAnimal(AnimalType.ANJING,FoodType.DAGING).success(),"beri makan anjing selesaikan ParkCareQuest");
         check(qs.getMoney()==beforeParkQuest+18000&&qm.getActiveQuest()==null,"upah ParkCareQuest Rp18.000 + bonus sanity");
         check(qs.getSanity()==94,"sanity +20 (Anjing) +14 (ParkCareQuest)");
-        // 4b. Interaksi Hewan Bergerak Bebas, Bergerombol Ke Player Saat Ada Makanan & Zona Suara
+        // 4b. 15 Hewan di Taman, Filter Makanan Saat Bergrombol & Idle Roaming
         var playerAtFeed=new java.awt.geom.Point2D.Double(qs.getX(),qs.getY());
+        var catHome=WorldLayout.animalHome(AnimalType.KUCING);
         var birdHome=WorldLayout.animalHome(AnimalType.BURUNG);
+        check(qm.getParkAnimals().size()==15,"taman memiliki 15 satwa (3 ekor per jenis)");
+        for(var pa:qm.getParkAnimals()) {
+            check(WorldLayout.canWalk(Location.PARK,pa.x(),pa.y()),"satwa "+pa.type()+"#"+pa.id()+" berada di area jalan taman");
+        }
         check(qm.isAnimalsGathering(),"hewan berkumpul aktif setelah diberi makan");
         check(qm.getGatherCenter()!=null&&qm.getGatherCenter().distance(playerAtFeed)<1,"pusat berkumpul berada di sekitar player");
         seconds(qm,2.0);
-        check(qm.getAnimalPosition(AnimalType.BURUNG).distance(playerAtFeed)<birdHome.distance(playerAtFeed)-25,"burung berjalan mendekat berkumpul ke player");
+        check(qm.getAnimalPosition(AnimalType.KUCING).distance(playerAtFeed)<catHome.distance(playerAtFeed)-25,"kucing (pemakan DAGING) mendekat saat anjing diberi daging");
+        check(qm.getAnimalPosition(AnimalType.BURUNG).distance(birdHome)<40,"burung (tidak makan DAGING) tetap di habitatnya");
         seconds(qm,14.0);
         check(!qm.isAnimalsGathering(),"durasi berkumpul selesai setelah 10 detik");
-        // Gerak bebas alami (Idle Roaming) tanpa makanan & bergerombol ke player saat membawa makanan
+        // Gerak bebas alami (Idle Roaming) tanpa makanan & hanya hewan yang suka makanan yang bergerombol
         GameManager parkFlow=park();
         var birdStart=parkFlow.getAnimalPosition(AnimalType.BURUNG);
         seconds(parkFlow,3.2);
         var birdRoamed=parkFlow.getAnimalPosition(AnimalType.BURUNG);
         check(birdStart.distance(birdRoamed)>2,"hewan bergerak alami saat santai di taman");
-        parkFlow.getState().setPosition(520,380);
+        parkFlow.getState().setPosition(360,290);
         parkFlow.getState().getInventory().set(FoodType.BIJI_BIJIAN,1);
-        double birdDistBeforeFood=parkFlow.getAnimalPosition(AnimalType.BURUNG).distance(520,380);
-        seconds(parkFlow,2.5);
-        check(parkFlow.getAnimalPosition(AnimalType.BURUNG).distance(520,380)<birdDistBeforeFood-40,"hewan bergerombol menghampiri player saat tas berisi makanan");
+        double birdDistBeforeFood=parkFlow.getAnimalPosition(AnimalType.BURUNG).distance(360,290);
+        double henDistBeforeFood=parkFlow.getAnimalPosition(AnimalType.AYAM).distance(360,290);
+        seconds(parkFlow,3.0);
+        check(parkFlow.getAnimalPosition(AnimalType.BURUNG).distance(360,290)<birdDistBeforeFood-40,"burung menghampiri player saat tas berisi BIJI_BIJIAN");
+        check(parkFlow.getAnimalPosition(AnimalType.AYAM).distance(360,290)<henDistBeforeFood-40,"ayam menghampiri player saat tas berisi BIJI_BIJIAN");
+        for(var pa:parkFlow.getParkAnimals()) {
+            if(pa.type()==AnimalType.KUCING||pa.type()==AnimalType.ANGSA) {
+                check(Math.hypot(pa.x()-360,pa.y()-290)>55,"kucing/angsa tidak ikut mengerumuni pemain yang hanya bawa BIJI_BIJIAN");
+            }
+        }
+        check(parkFlow.getActiveSoundZoneAnimals().size()>=2,"banyak hewan masuk zona suara bersamaan saat bergerombol");
 
-        // 4c. Zona Suara + Jeda Cooldown + Shortcut [R] Langsung Pulang + Tukar Kendaraan di Hari Sama
+        // 4c. Zona Suara Tanpa Delay + Shortcut [R] Langsung Pulang + Tukar Kendaraan di Hari Sama
         GameManager zoneGm=park();
         var catPos=zoneGm.getAnimalPosition(AnimalType.KUCING);
         zoneGm.getState().setPosition(catPos.x-40,catPos.y);
@@ -783,9 +809,10 @@ public final class GameTests {
         check(zoneGm.getReaction().contains(zoneGm.getAnimal(AnimalType.KUCING).getSuaraSebelumMakan()),"zona suara tampilkan ekspresi sebelum makan");
         zoneGm.getState().setPosition(catPos.x-300,catPos.y);
         zoneGm.tick(.1,0,0);
-        zoneGm.getState().setPosition(WorldLayout.animalHome(AnimalType.ANJING).x-30,WorldLayout.animalHome(AnimalType.ANJING).y);
+        var dogPos=zoneGm.getAnimalPosition(AnimalType.ANJING);
+        zoneGm.getState().setPosition(dogPos.x-30,dogPos.y);
         zoneGm.tick(.1,0,0);
-        check(zoneGm.getReactingAnimal()==AnimalType.KUCING,"jeda global 2.5 detik cegah suara hewan bertumpuk");
+        check(zoneGm.getReactingAnimal()==AnimalType.ANJING,"tanpa delay global: suara anjing langsung berbunyi sesaat setelah kucing");
         double beforeHomeMin=zoneGm.getState().getMinutes();
         check(zoneGm.quickReturnHome().success(),"shortcut [R] langsung pulang ke rumah");
         check(zoneGm.getState().getLocation()==Location.HOME,"lokasi langsung berpindah ke HOME");
